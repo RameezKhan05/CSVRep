@@ -1,0 +1,82 @@
+#!/bin/ksh
+#. $HOME/.profile
+
+SCRDIR=$HOME/scripts/archive
+SCRIPT_NAME=archive_report.sh
+LOGDIR=$HOME/scripts/archive/logs
+LOG_FILE=$LOGDIR/archive_report.log
+
+export ORACLE_SID=ABC
+export ORA_USER_ID=ABC
+export ORA_PASSWORD=ABC
+export ORACLE_HOME=/oracle/product/19.3
+
+MAIL_LIST="rameez.m.khan@gmail.com,Ashish.Mandlik@gmail.com"
+
+exit_success() {
+echo `date` ":INFO : ---------------" >> $LOG_FILE
+echo `date` ":INFO : Script Success" >> $LOG_FILE
+echo `date` ":INFO : ---------------" >> $LOG_FILE
+}
+
+exit_fail() {
+echo `date` ":INFO : ---------------" >> $LOG_FILE
+echo `date` ":ERROR : Script Failed" >> $LOG_FILE
+echo `date` ":INFO : ---------------" >> $LOG_FILE
+mailx -s "$SCRIPT_NAME failed for $CLIENT_NAME" $MAIL_LIST <`tail -40 $LOG_FILE`
+exit 1
+}
+
+####################
+# Script Starts
+####################
+
+############################################
+#CHECK IF WE ARE RUNNING  ON FIRST SATURDAY
+############################################
+if [ $FIRST_SATURDAY_DEPENDENCY -eq 1 ]; then
+day=$(date +%d)
+if ((day <= 3)) ; then
+echo "$day will not run" >> ${LOG_FILE}
+exit 0
+fi
+fi
+
+echo > ${LOG_FILE}
+echo `date` ":INFO :${SCRIPT_NAME}: +++++++++++++++++" >> ${LOG_FILE}
+echo `date` ":INFO :${SCRIPT_NAME}: Script STARTED." >> ${LOG_FILE}
+echo `date` ":INFO :${SCRIPT_NAME}: +++++++++++++++++" >> ${LOG_FILE}
+
+echo  "The archiving status of all clients" > $SCRDIR/archive_report.csv
+
+n=`wc -l < $SCRDIR/archive_client.txt`
+i=1
+prodclient=''
+
+while [ "$i" -le "$n" ]
+do
+        line=`cat $SCRDIR/archive_client.txt | head -$i | tail -1`
+        prodclient=`echo $line | cut -d" " -f1`
+        echo `date` ":INFO :$prodclient"   >> $LOG_FILE
+        $SCRDIR/get_archive_data.sh $line
+        echo `date` ":INFO : Captured Data for:$prodclient"   >> $LOG_FILE
+        i=`expr $i + 1`
+done
+
+MAIL_DATE=`${ORACLE_HOME}/bin/sqlplus -s ${ORA_USER_ID}/${ORA_PASSWORD}@${ORACLE_SID} <<END
+set echo off feedback off heading off linesize 500 pagesize 0
+SELECT MAX(BUSINESS_DATE) FROM RECON_BREAK_INFO;
+exit;
+END`
+
+if [ -s $SCRDIR/archive_report.csv ]
+then
+(
+
+mv $SCRDIR/archive_report.csv $SCRDIR/customers_Archiving_status_$MAIL_DATE.csv
+
+echo -e "Hi,\n\n Please find archiving report for $MAIL_DATE attached with this email.\n\n Thanks" | mailx -s "Archiving Status for $MAIL_DATE" -a $SCRDIR/customers_Archiving_status_$MAIL_DATE.csv $MAIL_LIST)
+
+fi
+
+exit_success
