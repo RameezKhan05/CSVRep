@@ -1,0 +1,98 @@
+#!/bin/ksh
+#. $HOME/.profile
+
+#####################################################
+## This script expects three parameters
+## S1--Client Name
+## $2 -- DB Username
+## $3 -- DB Password
+## $4 -- DB SID
+## Script inserts one row in RECON_BREAK_INFO table.
+#####################################################
+
+SCRDIR=$HOME/scripts/archive
+SCRIPT_NAME=get_archive_data.sh
+LOGDIR=$HOME/scripts/archive/logs
+LOG_FILE=$LOGDIR/get_archive_data.log
+CLIENT=$1
+USER_ID=$2
+PASSWORD=$3
+SID=$4
+
+MAIL_LIST="rameez.m.khan@gmail.com"
+
+
+exit_success() {
+echo `date` ":INFO : ---------------" > $LOG_FILE
+echo `date` ":INFO : Script Success" > $LOG_FILE
+echo `date` ":INFO : ---------------" > $LOG_FILE
+}
+
+exit_fail() {
+echo `date` ":INFO : ---------------" > $LOG_FILE
+echo `date` ":ERROR : Script Failed" > $LOG_FILE
+echo `date` ":INFO : ---------------" > $LOG_FILE
+mailx -s "$SCRIPT_NAME failed for $CLIENT" $MAIL_LIST <`tail -40 $LOG_FILE`
+exit 1
+}
+
+echo >> $SCRDIR/archive_report.csv
+echo  "Status for $CLIENT" >> $SCRDIR/archive_report.csv
+echo "TABLE NAME,REQUESTED RECORDS,ARCHIVED RECORDS,PROCESSED STATUS,PENDING RECORDS" >> $SCRDIR/archive_report.csv
+if [ "$CLIENT" = ABCD ] || [ "$CLIENT" = EFGH ];
+then
+${ORACLE_HOME}/bin/sqlplus -s ${USER_ID}/${PASSWORD}@${SID} <<EOF >> $SCRDIR/archive_report.csv
+whenever OSERROR exit 9
+whenever SQLERROR exit sql.sqlcode
+--set echo off feedback off linesize 500 pagesize 0
+set feedback off linesize 500 pagesize 0
+select trim(table_name)||','||trim(requested_records)||','||trim(archived_records)||','||trim(processed_status) ||','||trim(requested_records - archived_records) from archive_info
+where business_date = (select process_previous_date from date_table where process_description = 'Main Business Date') order by table_name;
+exit;
+EOF
+else
+${ORACLE_HOME}/bin/sqlplus -s ${USER_ID}/${PASSWORD}@${SID} <<EOF >> $SCRDIR/archive_report.csv
+whenever OSERROR exit 9
+whenever SQLERROR exit sql.sqlcode
+--set echo off feedback off linesize 500 pagesize 0
+set feedback off linesize 500 pagesize 0
+select trim(table_name)||','||trim(requested_records)||','||trim(archived_records)||','||trim(processed_status) ||','||trim(requested_records - archived_records) from archive_info
+where business_date = (select process_current_date from date_table where process_description = 'BATCH_BUSINESS_DATE') order by table_name;
+exit;
+EOF
+fi
+if [ "$CLIENT" = ABCD ] || [ "$CLIENT" = EFGH ];
+then
+${ORACLE_HOME}/bin/sqlplus -s ${USER_ID}/${PASSWORD}@${SID} <<EOF >> $SCRDIR/archive_report.txt
+whenever OSERROR exit 9
+whenever SQLERROR exit sql.sqlcode
+--set echo off feedback off linesize 500 pagesize 0
+set feedback off linesize 500 pagesize 0
+select table_name from archive_table_list
+minus
+select table_name from archive_info where business_date =(select process_previous_date from date_table where process_description = 'Main Business Date');
+exit;
+EOF
+else
+${ORACLE_HOME}/bin/sqlplus -s ${USER_ID}/${PASSWORD}@${SID} <<EOF >> $SCRDIR/archive_report.txt
+whenever OSERROR exit 9
+whenever SQLERROR exit sql.sqlcode
+--set echo off feedback off linesize 500 pagesize 0
+set feedback off linesize 500 pagesize 0
+select table_name from archive_table_list
+minus
+select table_name from archive_info where business_date = (select process_current_date from date_table where process_description = 'BATCH_BUSINESS_DATE');
+exit;
+EOF
+fi
+i=1
+n=`wc -l< $SCRDIR/archive_report.txt`
+while [ "$i" -le "$n" ]
+do
+NOT_RUN=`cat $SCRDIR/archive_report.txt| head -$i | tail -1`
+echo "$NOT_RUN, FAILED, FAILED, FAILED" >> $SCRDIR/archive_report.csv
+i=`expr $i + 1`
+done
+rm $SCRDIR/archive_report.txt
+exit_success
+exit 0
